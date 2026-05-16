@@ -4007,12 +4007,17 @@ function TacticalMission({ mission, squad, tech, weaponUpgrades = normalizeWeapo
   const startX = clamp(center.x - Math.floor(viewSize / 2), 0, TACTICAL_GRID_SIZE - viewSize);
   const startY = clamp(center.y - Math.floor(viewSize / 2), 0, TACTICAL_GRID_SIZE - viewSize);
   const visibleCells = Array.from({ length: viewSize * viewSize }, (_, i) => ({ x: startX + (i % viewSize), y: startY + Math.floor(i / viewSize) }));
+  const visibleRows = Array.from({ length: viewSize }, (_, rowIndex) => ({
+    y: startY + rowIndex,
+    cells: Array.from({ length: viewSize }, (_, colIndex) => ({ x: startX + colIndex, y: startY + rowIndex })),
+  }));
+  const tacticalHexClipPath = "polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%)";
   const allowedModes = selectedUnit ? weaponModesForKind(selectedUnit.weaponKind, weaponUpgrades) : ["single"];
-  const tacticalGridStyle = aiMapPlayback
-    ? { gridTemplateColumns: `repeat(${viewSize}, minmax(0, 1fr))`, width: "min(100%, calc(100vh - 92px))", maxHeight: "calc(100vh - 92px)" }
+  const tacticalBoardStyle = aiMapPlayback
+    ? { "--hex-cell": `calc(min(100%, calc(100vh - 92px)) / ${viewSize + 0.5})`, width: "min(100%, calc((100vh - 92px) * 1.14))", maxHeight: "calc(100vh - 92px)" }
     : zoomIndex === 0
-      ? { gridTemplateColumns: `repeat(${viewSize}, minmax(0, 1fr))`, width: "min(100%, calc(100vh - 178px))" }
-      : { gridTemplateColumns: `repeat(${viewSize}, minmax(${zoom.cell}px, 1fr))` };
+      ? { "--hex-cell": `calc(min(100%, calc(100vh - 178px)) / ${viewSize + 0.5})`, width: "min(100%, calc((100vh - 178px) * 1.14))" }
+      : { "--hex-cell": `${zoom.cell}px`, width: `${Math.ceil((viewSize + 0.5) * zoom.cell)}px` };
 
   if (aliens.length === 0) return <button className="rounded-2xl border px-4 py-2 font-bold shadow" onClick={() => finish(true)}>Confirm tactical victory</button>;
   if (humans.length === 0) return <button className="rounded-2xl border px-4 py-2 font-bold shadow" onClick={() => finish(false)}>Confirm squad loss</button>;
@@ -4056,8 +4061,9 @@ function TacticalMission({ mission, squad, tech, weaponUpgrades = normalizeWeapo
           {aiPlayback.frameIndex >= aiPlayback.frames.length - 1 ? <button onClick={finishAiPlayback} className="rounded-2xl border bg-green-600 px-4 py-2 text-sm font-black text-white shadow-sm">Continue Mission Result</button> : <button onClick={advanceAiPlayback} className="rounded-2xl border bg-white px-4 py-2 text-sm font-black shadow-sm">Advance</button>}
         </div>}
         <div className={`relative max-h-[calc(100vh-150px)] rounded-2xl border border-cyan-900/40 bg-cyan-950 p-2 shadow-inner ${aiMapPlayback || zoomIndex === 0 ? "overflow-hidden" : "overflow-auto"}`}>
-          <div className="mx-auto grid gap-0.5" style={tacticalGridStyle}>
-            {visibleCells.map(({ x, y }) => {
+          <div className="mx-auto overflow-visible" style={tacticalBoardStyle}>
+            {visibleRows.map((row, rowIndex) => <div key={`row-${row.y}`} className="flex gap-[1px]" style={{ marginTop: rowIndex === 0 ? 0 : "calc(var(--hex-cell) * -0.24)", transform: row.y % 2 ? "translateX(calc(var(--hex-cell) * 0.5))" : "translateX(0)" }}>
+              {row.cells.map(({ x, y }) => {
               const unit = units.find((u) => u.x === x && u.y === y && (u.hp > 0 || u.team === "human"));
               const cover = covers.find((c) => c.x === x && c.y === y && c.hp > 0);
               const seen = visibleByHumans(x, y);
@@ -4066,21 +4072,26 @@ function TacticalMission({ mission, squad, tech, weaponUpgrades = normalizeWeapo
               const showUnit = unit?.team === "human" || (unit?.team === "alien" && (aiMapPlayback ? unit.revealed && seen : unit.revealed && seen));
               const showCover = aiMapPlayback ? cover?.revealed : cover?.revealed;
               const edgeCell = isTacticalMapEdge(x, y);
+              const baseCellStyle = tacticalCellStyle({ x, y, mission, seen, hasExplored, aiMapPlayback, unit });
               const cellStyle = {
-                ...tacticalCellStyle({ x, y, mission, seen, hasExplored, aiMapPlayback, unit }),
-                clipPath: "polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%)",
-                transform: y % 2 ? "translateX(50%)" : "translateX(0)",
+                ...baseCellStyle,
+                clipPath: tacticalHexClipPath,
+                width: "var(--hex-cell)",
+                height: "var(--hex-cell)",
+                flex: "0 0 var(--hex-cell)",
               };
-              return <button key={`${x}-${y}`} title={edgeCell ? "Edge of tactical map" : undefined} onClick={() => cellClick(x, y)} style={cellStyle} className={`relative aspect-square border text-[9px] font-bold text-white shadow-sm transition hover:brightness-125 ${edgeCell ? "border-amber-300/90 ring-1 ring-amber-300/60" : "border-white/10"} ${selected === unit?.id ? "ring-2 ring-sky-300" : ""}`}>
-                {edgeCell && <span className="pointer-events-none absolute inset-0 bg-amber-300/10" />}
-                {!aiMapPlayback && !seen && !hasExplored && <span className="opacity-30">?</span>}
-                {canReach && !unit && !cover && <span className="pointer-events-none absolute inset-1 border border-lime-200/60 bg-lime-300/20" style={{ clipPath: "polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%)" }} />}
+              return <button key={`${x}-${y}`} title={edgeCell ? "Edge of tactical map" : undefined} onClick={() => cellClick(x, y)} style={cellStyle} className={`relative border-0 text-[9px] font-bold text-white shadow-sm transition hover:brightness-125 ${selected === unit?.id ? "ring-2 ring-sky-300" : ""}`}>
+                <span className="pointer-events-none absolute inset-[2px]" style={{ clipPath: tacticalHexClipPath, boxShadow: edgeCell ? "inset 0 0 0 3px rgba(252, 211, 77, 0.95), inset 0 0 18px rgba(252, 211, 77, 0.22)" : "inset 0 0 0 1px rgba(255,255,255,0.16)" }} />
+                {edgeCell && <span className="pointer-events-none absolute inset-0 bg-amber-300/10" style={{ clipPath: tacticalHexClipPath }} />}
+                {!aiMapPlayback && !seen && !hasExplored && <span className="relative z-10 opacity-30">?</span>}
+                {canReach && !unit && !cover && <span className="pointer-events-none absolute inset-2 border border-lime-200/70 bg-lime-300/25" style={{ clipPath: tacticalHexClipPath }} />}
                 {showCover && cover && <CoverGlyph cover={cover} />}
                 {showUnit && unit && <BattleUnitGlyph unit={unit} small />}
-                {unit?.team === "human" && unit.hp <= 0 && <span className="absolute inset-0 grid place-items-center bg-slate-900/70 text-red-300">KIA</span>}
+                {unit?.team === "human" && unit.hp <= 0 && <span className="absolute inset-0 grid place-items-center bg-slate-900/70 text-red-300" style={{ clipPath: tacticalHexClipPath }}>KIA</span>}
               </button>;
             })}
-          </div>
+            </div>)}
+          </div>          </div>
           {shotFx && (() => {
             const hexPct = (x, y) => ({ x: ((x - startX + (y % 2 ? 0.5 : 0) + 0.5) / (viewSize + 0.5)) * 100, y: ((y - startY + 0.5) / viewSize) * 100 });
             const visible = [shotFx.fromX, shotFx.toX].every((value) => value >= startX && value < startX + viewSize) && [shotFx.fromY, shotFx.toY].every((value) => value >= startY && value < startY + viewSize);
