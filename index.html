@@ -1925,12 +1925,12 @@ function resolveMission({ squad, mission, tech, mode, leaderInstruction, weaponU
     let shots = [];
 
     humans.filter((u) => u.alive).forEach((human) => {
-      const visibleTargets = aliens.filter((a) => a.alive && Math.hypot(a.x - human.x, a.y - human.y) <= (human.weaponKind === "ballistic" ? 18 : 20) && hasLineOfSight(human, a.x, a.y, covers));
+      const visibleTargets = aliens.filter((a) => a.alive && tacticalDistance(a, human) <= (human.weaponKind === "ballistic" ? 18 : 20) && hasLineOfSight(human, a.x, a.y, covers));
       const target = visibleTargets[0] || randomAlive(aliens);
       if (!target) return;
       human.facing = facingToward(human, target.x, target.y);
       if (visibleTargets.length) {
-        const hit = rand(1, 100) <= clamp(humanHitChance(human) - Math.floor(Math.hypot(target.x - human.x, target.y - human.y) * 1.4), 10, 92);
+        const hit = rand(1, 100) <= clamp(humanHitChance(human) - Math.floor(tacticalDistance(target, human) * 1.4), 10, 92);
         const damage = hit ? humanDamage(human) : 0;
         shots.push({
           fromX: human.x,
@@ -1961,7 +1961,7 @@ function resolveMission({ squad, mission, tech, mode, leaderInstruction, weaponU
           occupied.add(tacticalKey(human.x, human.y));
         }
         human.facing = facingToward(human, target.x, target.y);
-        if (Math.hypot(target.x - human.x, target.y - human.y) <= (human.weaponKind === "ballistic" ? 18 : 20) && hasLineOfSight(human, target.x, target.y, covers)) {
+        if (tacticalDistance(target, human) <= (human.weaponKind === "ballistic" ? 18 : 20) && hasLineOfSight(human, target.x, target.y, covers)) {
           const hit = rand(1, 100) <= humanHitChance(human);
           const damage = hit ? humanDamage(human) : 0;
           shots.push({ fromX: human.x, fromY: human.y, toX: target.x, toY: target.y, color: shotColorForWeapon(human.weaponKind), side: "human", weaponKind: human.weaponKind, hit, killed: hit && target.hp - damage <= 0 });
@@ -1990,13 +1990,13 @@ function resolveMission({ squad, mission, tech, mode, leaderInstruction, weaponU
     shots = [];
 
     aliens.filter((u) => u.alive).forEach((alien) => {
-      const visibleTargets = humans.filter((h) => h.alive && Math.hypot(h.x - alien.x, h.y - alien.y) <= 20 && hasLineOfSight(alien, h.x, h.y, covers));
+      const visibleTargets = humans.filter((h) => h.alive && tacticalDistance(h, alien) <= 20 && hasLineOfSight(alien, h.x, h.y, covers));
       const target = visibleTargets[0] || randomAlive(humans);
       if (!target) return;
       alien.facing = facingToward(alien, target.x, target.y);
       if (visibleTargets.length) {
         const targetInCover = covers.some((c) => c.hp > 0 && c.kind === "hard" && adjacentToCover(target, c) && lineCells(alien.x, alien.y, target.x, target.y).some((cell) => cell.x === c.x && cell.y === c.y));
-        const hit = rand(1, 100) <= clamp(alienHitChance() - (targetInCover ? 18 : 0) - Math.floor(Math.hypot(target.x - alien.x, target.y - alien.y) * 1.2), 8, 86);
+        const hit = rand(1, 100) <= clamp(alienHitChance() - (targetInCover ? 18 : 0) - Math.floor(tacticalDistance(target, alien) * 1.2), 8, 86);
         const damage = hit ? alienDamage() : 0;
         shots.push({
           fromX: alien.x,
@@ -2023,7 +2023,7 @@ function resolveMission({ squad, mission, tech, mode, leaderInstruction, weaponU
           occupied.add(tacticalKey(alien.x, alien.y));
         }
         alien.facing = facingToward(alien, target.x, target.y);
-        if (Math.hypot(target.x - alien.x, target.y - alien.y) <= 20 && hasLineOfSight(alien, target.x, target.y, covers)) {
+        if (tacticalDistance(target, alien) <= 20 && hasLineOfSight(alien, target.x, target.y, covers)) {
           const hit = rand(1, 100) <= alienHitChance();
           const damage = hit ? alienDamage() : 0;
           shots.push({ fromX: alien.x, fromY: alien.y, toX: target.x, toY: target.y, color: shotColorForWeapon("alien"), side: "alien", weaponKind: "alien", hit, killed: hit && target.hp - damage <= 0 });
@@ -2755,7 +2755,7 @@ function runSelfTests() {
     { name: "Mission resolver returns growth for each squad member", pass: result.growth.length === 2 && typeof result.success === "boolean" },
     { name: "Mission simulation playback ends with survivor frame", pass: simFramesTest.length >= 2 && Boolean(finalSimFrameTest.summary) },
     { name: "Simulated missions use the 64 x 64 tactical battlefield", pass: firstSimFrameTest.gridSize === 64 && firstSimFrameTest.soldiers.every((s) => s.x >= 0 && s.x < 64 && s.y >= 0 && s.y < 64) && firstSimFrameTest.aliens.every((a) => a.x >= 0 && a.x < 64 && a.y >= 0 && a.y < 64) },
-    { name: "Tactical deployments drop squads together and aliens outside initial sight", pass: tacticalDeploymentTest.humanPositions.length === 2 && tacticalDeploymentTest.alienPositions.length >= 3 && Math.hypot(tacticalDeploymentTest.humanCenter.x - tacticalDeploymentTest.alienCenter.x, tacticalDeploymentTest.humanCenter.y - tacticalDeploymentTest.alienCenter.y) > 20 },
+    { name: "Tactical deployments drop squads together and aliens outside initial sight", pass: tacticalDeploymentTest.humanPositions.length === 2 && tacticalDeploymentTest.alienPositions.length >= 3 && tacticalDistance(tacticalDeploymentTest.humanCenter, tacticalDeploymentTest.alienCenter) > 20 },
     { name: "Simulated missions end only when one side is eliminated", pass: finalSimFrameTest.summary.humanAlive === 0 || finalSimFrameTest.summary.alienAlive === 0 },
     { name: "Failed simulated missions wipe the whole squad", pass: result.success || result.growth.every((g) => g.state === "KIA") },
     { name: "Mission playback shots include sound metadata", pass: simFramesTest.some((frame) => frame.shots?.some((shot) => Boolean(shot.weaponKind))) },
@@ -3279,8 +3279,12 @@ const TACTICAL_ZOOM_LEVELS = [
   { label: "Close", size: 18, cell: 34 },
 ];
 const TACTICAL_DIRECTIONS = [
-  { key: "N", dx: 0, dy: -1 }, { key: "NE", dx: 1, dy: -1 }, { key: "E", dx: 1, dy: 0 }, { key: "SE", dx: 1, dy: 1 },
-  { key: "S", dx: 0, dy: 1 }, { key: "SW", dx: -1, dy: 1 }, { key: "W", dx: -1, dy: 0 }, { key: "NW", dx: -1, dy: -1 },
+  { key: "E", vx: 1, vy: 0 },
+  { key: "NE", vx: 0.5, vy: -0.866 },
+  { key: "NW", vx: -0.5, vy: -0.866 },
+  { key: "W", vx: -1, vy: 0 },
+  { key: "SW", vx: -0.5, vy: 0.866 },
+  { key: "SE", vx: 0.5, vy: 0.866 },
 ];
 const FIRE_MODES = {
   single: { label: "Single", rounds: 1, accPenalty: 0, tu: 14 },
@@ -3344,28 +3348,36 @@ function makeBattlefield(mission = {}) {
 }
 
 function lineCells(x0, y0, x1, y1) {
+  const start = tacticalOffsetToCube(x0, y0);
+  const end = tacticalOffsetToCube(x1, y1);
+  const steps = tacticalDistance({ x: x0, y: y0 }, { x: x1, y: y1 });
+  if (steps <= 0) return [{ x: x0, y: y0 }];
   const cells = [];
-  let x = x0, y = y0;
-  const dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
-  const dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
-  let err = dx + dy;
-  while (true) {
-    cells.push({ x, y });
-    if (x === x1 && y === y1) break;
-    const e2 = 2 * err;
-    if (e2 >= dy) { err += dy; x += sx; }
-    if (e2 <= dx) { err += dx; y += sy; }
+  for (let i = 0; i <= steps; i += 1) {
+    const t = i / steps;
+    const rounded = tacticalCubeRound({
+      x: start.x + (end.x - start.x) * t,
+      y: start.y + (end.y - start.y) * t,
+      z: start.z + (end.z - start.z) * t,
+    });
+    const cell = tacticalCubeToOffset(rounded);
+    if (!cells.some((c) => c.x === cell.x && c.y === cell.y)) cells.push(cell);
   }
   return cells;
 }
 
 function isInVisionCone(observer, x, y) {
-  const dist = Math.hypot(x - observer.x, y - observer.y);
+  const dist = tacticalDistance(observer, { x, y });
   if (dist > 20) return false;
   if (dist === 0) return true;
-  const dir = TACTICAL_DIRECTIONS.find((d) => d.key === observer.facing) || TACTICAL_DIRECTIONS[2];
-  const mag = Math.hypot(dir.dx, dir.dy);
-  const dot = ((x - observer.x) * dir.dx + (y - observer.y) * dir.dy) / Math.max(0.01, dist * mag);
+  const origin = tacticalHexPixel(observer.x, observer.y);
+  const target = tacticalHexPixel(x, y);
+  const dx = target.x - origin.x;
+  const dy = target.y - origin.y;
+  const dir = TACTICAL_DIRECTIONS.find((d) => d.key === observer.facing) || TACTICAL_DIRECTIONS[0];
+  const mag = Math.hypot(dir.vx, dir.vy);
+  const pixelDist = Math.hypot(dx, dy);
+  const dot = (dx * dir.vx + dy * dir.vy) / Math.max(0.01, pixelDist * mag);
   return dot >= 0.38;
 }
 
@@ -3377,13 +3389,17 @@ function hasLineOfSight(observer, x, y, covers = []) {
 }
 
 function adjacentToCover(unit, cover) {
-  return Math.abs(unit.x - cover.x) <= 1 && Math.abs(unit.y - cover.y) <= 1;
+  return tacticalDistance(unit, cover) <= 1;
 }
 
 function facingToward(unit, x, y) {
-  const dx = Math.sign(x - unit.x), dy = Math.sign(y - unit.y);
-  const dir = TACTICAL_DIRECTIONS.find((d) => d.dx === dx && d.dy === dy);
-  return dir?.key || unit.facing || "N";
+  const origin = tacticalHexPixel(unit.x, unit.y);
+  const target = tacticalHexPixel(x, y);
+  const dx = target.x - origin.x;
+  const dy = target.y - origin.y;
+  if (Math.hypot(dx, dy) < 0.01) return unit.facing || "E";
+  const ranked = TACTICAL_DIRECTIONS.map((d) => ({ key: d.key, score: dx * d.vx + dy * d.vy })).sort((a, b) => b.score - a.score);
+  return ranked[0]?.key || unit.facing || "E";
 }
 
 function squadOpeningFacing(index = 0) {
@@ -3392,6 +3408,59 @@ function squadOpeningFacing(index = 0) {
 
 function tacticalKey(x, y) {
   return `${x},${y}`;
+}
+
+function tacticalOffsetToCube(x, y) {
+  const q = x - ((y - (y & 1)) / 2);
+  const r = y;
+  return { x: q, y: -q - r, z: r };
+}
+
+function tacticalCubeToOffset(cube) {
+  const row = cube.z;
+  const col = cube.x + ((row - (row & 1)) / 2);
+  return { x: col, y: row };
+}
+
+function tacticalCubeRound(cube) {
+  let rx = Math.round(cube.x);
+  let ry = Math.round(cube.y);
+  let rz = Math.round(cube.z);
+  const xDiff = Math.abs(rx - cube.x);
+  const yDiff = Math.abs(ry - cube.y);
+  const zDiff = Math.abs(rz - cube.z);
+  if (xDiff > yDiff && xDiff > zDiff) rx = -ry - rz;
+  else if (yDiff > zDiff) ry = -rx - rz;
+  else rz = -rx - ry;
+  return { x: rx, y: ry, z: rz };
+}
+
+function tacticalDistance(a, b) {
+  const ac = tacticalOffsetToCube(a.x, a.y);
+  const bc = tacticalOffsetToCube(b.x, b.y);
+  return Math.max(Math.abs(ac.x - bc.x), Math.abs(ac.y - bc.y), Math.abs(ac.z - bc.z));
+}
+
+function tacticalStepForDirection(x, y, directionKey) {
+  const odd = y & 1;
+  const deltas = odd
+    ? { E: [1, 0], W: [-1, 0], NE: [1, -1], NW: [0, -1], SE: [1, 1], SW: [0, 1] }
+    : { E: [1, 0], W: [-1, 0], NE: [0, -1], NW: [-1, -1], SE: [0, 1], SW: [-1, 1] };
+  const [dx, dy] = deltas[directionKey] || [0, 0];
+  return { x: x + dx, y: y + dy };
+}
+
+function tacticalNeighbors(x, y) {
+  return TACTICAL_DIRECTIONS.map((d) => tacticalStepForDirection(x, y, d.key))
+    .filter((p) => p.x >= 0 && p.y >= 0 && p.x < TACTICAL_GRID_SIZE && p.y < TACTICAL_GRID_SIZE);
+}
+
+function tacticalHexPixel(x, y) {
+  return { x: x + (y & 1 ? 0.5 : 0), y: y * 0.866 };
+}
+
+function isTacticalMapEdge(x, y) {
+  return x === 0 || y === 0 || x === TACTICAL_GRID_SIZE - 1 || y === TACTICAL_GRID_SIZE - 1;
 }
 
 function isHardCoverAt(covers = [], x, y) {
@@ -3487,7 +3556,7 @@ function tacticalDeployment({ squad = [], mission = {}, covers = makeBattlefield
   const humanObservers = humanPositions.map((p) => ({ ...p, facing: "N" }));
   for (let attempt = 0; attempt < 24; attempt += 1) {
     const candidate = findClearTacticalCenter(tacticalDropCenter(seed + 211 + attempt * 13, attempt), covers, seed + attempt * 31);
-    const farEnough = humanPositions.every((p) => Math.hypot(candidate.x - p.x, candidate.y - p.y) > 24);
+    const farEnough = humanPositions.every((p) => tacticalDistance(candidate, p) > 24);
     const hidden = humanObservers.every((h) => !hasLineOfSight(h, candidate.x, candidate.y, covers));
     if (farEnough && hidden) {
       alienCenter = candidate;
@@ -3521,16 +3590,13 @@ function tacticalPath(start, target, covers = [], units = [], maxSteps = 8) {
   if (isHardCoverAt(covers, target.x, target.y) || isOccupiedAt(units, target.x, target.y, start.id)) return null;
   const queue = [{ x: start.x, y: start.y, path: [{ x: start.x, y: start.y }] }];
   const visited = new Set([tacticalKey(start.x, start.y)]);
-  const dirs = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
   while (queue.length) {
     const current = queue.shift();
     if (current.x === target.x && current.y === target.y) return current.path;
     if (current.path.length - 1 >= maxSteps) continue;
-    dirs.forEach((dir) => {
-      const x = current.x + dir.dx;
-      const y = current.y + dir.dy;
+    tacticalNeighbors(current.x, current.y).forEach(({ x, y }) => {
       const key = tacticalKey(x, y);
-      if (x < 0 || y < 0 || x >= TACTICAL_GRID_SIZE || y >= TACTICAL_GRID_SIZE || visited.has(key)) return;
+      if (visited.has(key)) return;
       if (isHardCoverAt(covers, x, y) || isOccupiedAt(units, x, y, start.id)) return;
       visited.add(key);
       queue.push({ x, y, path: [...current.path, { x, y }] });
@@ -3540,27 +3606,20 @@ function tacticalPath(start, target, covers = [], units = [], maxSteps = 8) {
 }
 
 function stepToward(unit, target, covers = [], occupied = new Set()) {
-  const options = [
-    { x: unit.x + Math.sign(target.x - unit.x), y: unit.y + Math.sign(target.y - unit.y) },
-    { x: unit.x + Math.sign(target.x - unit.x), y: unit.y },
-    { x: unit.x, y: unit.y + Math.sign(target.y - unit.y) },
-    { x: unit.x, y: unit.y },
-  ];
-  return options.find((p) => {
-    const x = clamp(p.x, 0, TACTICAL_GRID_SIZE - 1);
-    const y = clamp(p.y, 0, TACTICAL_GRID_SIZE - 1);
-    return !occupied.has(tacticalKey(x, y)) && !isHardCoverAt(covers, x, y);
-  }) || { x: unit.x, y: unit.y };
+  const options = tacticalNeighbors(unit.x, unit.y)
+    .map((p) => ({ ...p, distance: tacticalDistance(p, target) }))
+    .sort((a, b) => a.distance - b.distance);
+  return options.find((p) => !occupied.has(tacticalKey(p.x, p.y)) && !isHardCoverAt(covers, p.x, p.y)) || { x: unit.x, y: unit.y };
 }
 
 function bestCoverMove(unit, enemies = [], covers = [], occupied = new Set()) {
   const livingEnemies = enemies.filter((e) => e.alive);
-  const candidates = covers.filter((c) => c.hp > 0 && c.kind === "hard" && Math.hypot(c.x - unit.x, c.y - unit.y) <= 8)
-    .flatMap((c) => TACTICAL_DIRECTIONS.map((d) => ({ cover: c, x: c.x + d.dx, y: c.y + d.dy })))
+  const candidates = covers.filter((c) => c.hp > 0 && c.kind === "hard" && tacticalDistance(c, unit) <= 8)
+    .flatMap((c) => tacticalNeighbors(c.x, c.y).map((p) => ({ cover: c, ...p })))
     .filter((p) => p.x >= 0 && p.y >= 0 && p.x < TACTICAL_GRID_SIZE && p.y < TACTICAL_GRID_SIZE && !occupied.has(tacticalKey(p.x, p.y)) && !isHardCoverAt(covers, p.x, p.y));
   const ranked = candidates.map((p) => {
     const protectedLines = livingEnemies.filter((e) => lineCells(e.x, e.y, unit.x, unit.y).some((cell) => cell.x === p.cover.x && cell.y === p.cover.y)).length;
-    const distance = Math.abs(p.x - unit.x) + Math.abs(p.y - unit.y);
+    const distance = tacticalDistance(p, unit);
     return { ...p, score: protectedLines * 10 - distance };
   }).sort((a, b) => b.score - a.score);
   return ranked[0] ? stepToward(unit, ranked[0], covers, occupied) : null;
@@ -3588,7 +3647,7 @@ function TacticalMission({ mission, squad, tech, weaponUpgrades = normalizeWeapo
   const [zoomIndex, setZoomIndex] = useState(0);
   const [explored, setExplored] = useState(() => new Set());
   const [fireMode, setFireMode] = useState("single");
-  const [log, setLog] = useState([`Skyranger down at ${mission.kind}. 64 x 64 tactical grid generated with hard and soft cover.`]);
+  const [log, setLog] = useState([`Skyranger down at ${mission.kind}. 64 x 64 hex tactical grid generated with hard and soft cover.`]);
   const [turn, setTurn] = useState("human");
   const [shotFx, setShotFx] = useState(null);
   const [movingUnit, setMovingUnit] = useState(null);
@@ -3827,7 +3886,7 @@ function TacticalMission({ mission, squad, tech, weaponUpgrades = normalizeWeapo
     if (selectedUnit.weaponKind === "ballistic" && selectedUnit.ammo <= 0) return setLog((l) => [`${selectedUnit.name} needs to reload.`, ...l].slice(0, 8));
     if (selectedUnit.tu < mode.tu) return setLog((l) => [`${selectedUnit.name} lacks Time Units for ${mode.label}.`, ...l].slice(0, 8));
     const range = selectedUnit.weaponKind === "ballistic" ? 18 : 20;
-    const dist = Math.hypot(target.x - selectedUnit.x, target.y - selectedUnit.y);
+    const dist = tacticalDistance(target, selectedUnit);
     if (dist > range || !hasLineOfSight(selectedUnit, target.x, target.y, covers)) return setLog((l) => [`${target.name} is not in line of sight or weapon range.`, ...l].slice(0, 8));
     let nextCovers = covers;
     let nextUnits = units.map((u) => u.id === selectedUnit.id ? { ...u, facing: updateFacing(u, target.x, target.y), tu: Math.max(0, u.tu - mode.tu), ammo: u.weaponKind === "ballistic" ? Math.max(0, u.ammo - Math.min(mode.rounds, u.ammo)) : u.ammo } : u);
@@ -3881,7 +3940,7 @@ function TacticalMission({ mission, squad, tech, weaponUpgrades = normalizeWeapo
   function reactionFire(nextUnits) {
     let updated = [...nextUnits];
     updated.filter((u) => u.team === "alien" && u.hp > 0).forEach((alien) => {
-      const overwatcher = updated.find((h) => h.team === "human" && h.hp > 0 && h.tu >= 14 && Math.hypot(h.x - alien.x, h.y - alien.y) <= 18 && hasLineOfSight(h, alien.x, alien.y, covers) && rand(1, 100) <= getEffectiveStat(h.baseSoldier, "reactions"));
+      const overwatcher = updated.find((h) => h.team === "human" && h.hp > 0 && h.tu >= 14 && tacticalDistance(h, alien) <= 18 && hasLineOfSight(h, alien.x, alien.y, covers) && rand(1, 100) <= getEffectiveStat(h.baseSoldier, "reactions"));
       if (!overwatcher) return;
       const dmg = upgradedWeaponDamage(overwatcher.weaponKind, overwatcher.baseSoldier, weaponUpgrades);
       showShotEvent({ shooter: overwatcher, target: alien, hit: true, killed: alien.hp - dmg <= 0, weaponKind: overwatcher.weaponKind, label: "Snap Shot" });
@@ -3898,11 +3957,11 @@ function TacticalMission({ mission, squad, tech, weaponUpgrades = normalizeWeapo
       let next = units.map((u) => u.team === "alien" ? { ...u, tu: u.maxTu } : u);
       const newLogs = [];
       next.filter((a) => a.team === "alien" && a.hp > 0).forEach((alien) => {
-        const visibleTargets = next.filter((h) => h.team === "human" && h.hp > 0 && Math.hypot(h.x - alien.x, h.y - alien.y) <= 20 && hasLineOfSight(alien, h.x, h.y, covers));
-        const target = visibleTargets[0] || [...next.filter((h) => h.team === "human" && h.hp > 0)].sort((p, q) => Math.hypot(p.x - alien.x, p.y - alien.y) - Math.hypot(q.x - alien.x, q.y - alien.y))[0];
+        const visibleTargets = next.filter((h) => h.team === "human" && h.hp > 0 && tacticalDistance(h, alien) <= 20 && hasLineOfSight(alien, h.x, h.y, covers));
+        const target = visibleTargets[0] || [...next.filter((h) => h.team === "human" && h.hp > 0)].sort((p, q) => tacticalDistance(p, alien) - tacticalDistance(q, alien))[0];
         if (!target) return;
-        if (visibleTargets.length && Math.hypot(target.x - alien.x, target.y - alien.y) <= 20) {
-          const hit = rand(1, 100) < clamp(alien.acc - Math.floor(Math.hypot(target.x - alien.x, target.y - alien.y) * 2), 10, 82);
+        if (visibleTargets.length && tacticalDistance(target, alien) <= 20) {
+          const hit = rand(1, 100) < clamp(alien.acc - Math.floor(tacticalDistance(target, alien) * 2), 10, 82);
           const dmg = hit ? alienWeaponDamageForThreat(mission.threat) : 0;
           showShotEvent({ shooter: alien, target, hit, killed: hit && target.hp - dmg <= 0, armored: hit && isArmoredTarget(target), weaponKind: "alien", label: "Alien Fire" });
           next = next.map((u) => u.id === target.id ? { ...u, hp: Math.max(0, u.hp - dmg) } : u.id === alien.id ? { ...u, facing: updateFacing(u, target.x, target.y), tu: 0 } : u);
@@ -3981,7 +4040,7 @@ function TacticalMission({ mission, squad, tech, weaponUpgrades = normalizeWeapo
           </div>
         </div>}
         <div className="mb-2 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-          <div><b>Manual Tactical Mission - 64 x 64</b><div className="text-xs opacity-70">Fog of war hides aliens and cover until a soldier sees it. Click a soldier, then move, face, or fire.</div></div>
+          <div><b>Manual Tactical Mission - 64 x 64 Hex Field</b><div className="text-xs opacity-70">Fog of war hides aliens and cover until a soldier sees it. Hex-edge border cells mark the edge of the map.</div></div>
           <div className="flex flex-wrap gap-2">
             <button onClick={() => selectSoldier(-1)} className="rounded-2xl border px-3 py-2 text-sm font-semibold shadow-sm">Prev Soldier</button>
             <button onClick={() => selectSoldier(1)} className="rounded-2xl border px-3 py-2 text-sm font-semibold shadow-sm">Next Soldier</button>
@@ -4006,10 +4065,16 @@ function TacticalMission({ mission, squad, tech, weaponUpgrades = normalizeWeapo
               const canReach = reachableCells.has(tacticalKey(x, y));
               const showUnit = unit?.team === "human" || (unit?.team === "alien" && (aiMapPlayback ? unit.revealed && seen : unit.revealed && seen));
               const showCover = aiMapPlayback ? cover?.revealed : cover?.revealed;
-              const cellStyle = tacticalCellStyle({ x, y, mission, seen, hasExplored, aiMapPlayback, unit });
-              return <button key={`${x}-${y}`} onClick={() => cellClick(x, y)} style={cellStyle} className={`relative aspect-square rounded-sm border border-white/10 text-[9px] font-bold text-white shadow-sm transition hover:brightness-125 ${selected === unit?.id ? "ring-2 ring-sky-300" : ""}`}>
+              const edgeCell = isTacticalMapEdge(x, y);
+              const cellStyle = {
+                ...tacticalCellStyle({ x, y, mission, seen, hasExplored, aiMapPlayback, unit }),
+                clipPath: "polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%)",
+                transform: y % 2 ? "translateX(50%)" : "translateX(0)",
+              };
+              return <button key={`${x}-${y}`} title={edgeCell ? "Edge of tactical map" : undefined} onClick={() => cellClick(x, y)} style={cellStyle} className={`relative aspect-square border text-[9px] font-bold text-white shadow-sm transition hover:brightness-125 ${edgeCell ? "border-amber-300/90 ring-1 ring-amber-300/60" : "border-white/10"} ${selected === unit?.id ? "ring-2 ring-sky-300" : ""}`}>
+                {edgeCell && <span className="pointer-events-none absolute inset-0 bg-amber-300/10" />}
                 {!aiMapPlayback && !seen && !hasExplored && <span className="opacity-30">?</span>}
-                {canReach && !unit && !cover && <span className="pointer-events-none absolute inset-1 rounded-sm border border-lime-200/60 bg-lime-300/20" />}
+                {canReach && !unit && !cover && <span className="pointer-events-none absolute inset-1 border border-lime-200/60 bg-lime-300/20" style={{ clipPath: "polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%)" }} />}
                 {showCover && cover && <CoverGlyph cover={cover} />}
                 {showUnit && unit && <BattleUnitGlyph unit={unit} small />}
                 {unit?.team === "human" && unit.hp <= 0 && <span className="absolute inset-0 grid place-items-center bg-slate-900/70 text-red-300">KIA</span>}
@@ -4017,10 +4082,12 @@ function TacticalMission({ mission, squad, tech, weaponUpgrades = normalizeWeapo
             })}
           </div>
           {shotFx && (() => {
-            const toPct = (value, start) => ((value - start + 0.5) / viewSize) * 100;
+            const hexPct = (x, y) => ({ x: ((x - startX + (y % 2 ? 0.5 : 0) + 0.5) / (viewSize + 0.5)) * 100, y: ((y - startY + 0.5) / viewSize) * 100 });
             const visible = [shotFx.fromX, shotFx.toX].every((value) => value >= startX && value < startX + viewSize) && [shotFx.fromY, shotFx.toY].every((value) => value >= startY && value < startY + viewSize);
             if (!visible) return <div className="pointer-events-none absolute left-4 top-4 rounded-xl bg-black/70 px-3 py-2 text-xs font-bold text-white">Shot: {shotFx.weaponKind}</div>;
-            const x1 = toPct(shotFx.fromX, startX), y1 = toPct(shotFx.fromY, startY), x2 = toPct(shotFx.toX, startX), y2 = toPct(shotFx.toY, startY);
+            const fromHex = hexPct(shotFx.fromX, shotFx.fromY);
+            const toHex = hexPct(shotFx.toX, shotFx.toY);
+            const x1 = fromHex.x, y1 = fromHex.y, x2 = toHex.x, y2 = toHex.y;
             return <svg className="pointer-events-none absolute inset-2 h-[calc(100%-1rem)] w-[calc(100%-1rem)] overflow-visible">
               <line x1={`${x1}%`} y1={`${y1}%`} x2={`${x2}%`} y2={`${y2}%`} stroke={shotFx.color} strokeWidth="4" strokeLinecap="round" opacity="0.92" />
               <line x1={`${x1}%`} y1={`${y1}%`} x2={`${x2}%`} y2={`${y2}%`} stroke="white" strokeWidth="1.2" strokeLinecap="round" opacity="0.75" />
@@ -4044,7 +4111,7 @@ function TacticalMission({ mission, squad, tech, weaponUpgrades = normalizeWeapo
           <div className="grid gap-1">{allowedModes.map((mode) => <button key={mode} onClick={() => setFireMode(mode)} className={`rounded-xl border px-3 py-2 text-left text-xs font-bold ${fireMode === mode ? "bg-slate-900 text-white" : "bg-white"}`}>{FIRE_MODES[mode].label}: {FIRE_MODES[mode].rounds} shot{FIRE_MODES[mode].rounds === 1 ? "" : "s"}, -{FIRE_MODES[mode].accPenalty} acc, {FIRE_MODES[mode].tu} TU</button>)}</div>
           {selectedUnit.weaponKind === "ballistic" && <button onClick={reloadSelected} className="w-full rounded-2xl border bg-white px-4 py-2 text-sm font-black shadow-sm">Reload - 18 TU</button>}
         </div> : <div className="rounded-2xl bg-black/5 p-3 text-sm">Select a living soldier to move, face, reload, or fire.</div>}
-        <div className="mt-4 text-xs opacity-70">Hard cover icons show 100/75/50 shot absorption. Soft cover is marked B for brush and blocks vision only. Soldiers with full TU are green, partial TU blue, and unable-to-move TU orange.</div>
+        <div className="mt-4 text-xs opacity-70">Hex movement uses six neighboring cells. Amber-rimmed hexes are the tactical map edge. Hard cover icons show 100/75/50 shot absorption. Soft cover is marked B for brush and blocks vision only.</div>
         <div className="mt-4 space-y-2 text-sm">{log.map((l, i) => <div key={i} className="rounded-xl bg-black/5 p-2">{l}</div>)}</div>
         <div className="mt-4 text-xs opacity-70">Living soldiers: {humans.length} - Revealed aliens: {revealedAliens.length}/{aliens.length} - Turn: {turn}</div>
       </div>}
