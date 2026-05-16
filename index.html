@@ -5659,7 +5659,7 @@ function equipFromInventory(soldierId, itemName) {
     completeAction(`${soldier.name} admitted to Sickbay. Healing will proceed at full Sickbay speed.`);
   }
 
-  function advanceOneDay(reason = "A day passed at base command") {
+  function advanceOneDay(reason = "A day passed at base command", soldiersOverride = null) {
     if (gameOver) {
       return blockedAction("End day", "Earth has surrendered and the campaign is over");
     }
@@ -5675,11 +5675,12 @@ function equipFromInventory(soldierId, itemName) {
     const engineerArrivals = arrivals.filter((p) => p.type === "engineer").length;
 
     const newSoldiers = Array.from({ length: soldierArrivals }, () => makeSoldier());
+    const sourceSoldiers = Array.isArray(soldiersOverride) ? soldiersOverride : soldiers;
 
     let recoveredToday = [];
     let admittedToday = [];
 
-    const recoveredSoldiers = soldiers.map((soldier) => {
+    const recoveredSoldiers = sourceSoldiers.map((soldier) => {
       const result = recoverSoldierOneDay(soldier);
       if (result.recovered) recoveredToday.push(result.soldier.name);
       return result.soldier;
@@ -5822,13 +5823,14 @@ function equipFromInventory(soldierId, itemName) {
     const idsToRemoveFromSquads = Array.from(new Set([...kiaIds, ...woundedIds]));
     let projectedSickbayUse = sickbaySoldiers.length;
     const sickbayOverflow = [];
-    setSoldiers((old) => old.map((s) => {
+    const missionUpdatedSoldiers = soldiers.map((s) => {
       const g = result.growth.find((x) => x.id === s.id);
       if (!g) return s;
       if (g.state === "KIA") {
         const normalized = normalizeSoldier(s);
         const soldierFinalSquad = launchedSquads.find((sq) => sq.soldierIds.includes(s.id))?.name || launchedSquadName;
-        return { ...normalized, status: "KIA", currentHealth: 0, equipment: "Recovered", armor: "Recovered", missions: normalized.missions + 1, kiaSquad: soldierFinalSquad, squadHistory: Array.from(new Set([...(normalized.squadHistory || []), ...launchedSquads.map((sq) => sq.name)])) };
+        const nextMissions = normalized.missions + 1;
+        return { ...normalized, status: "KIA", currentHealth: 0, equipment: "Recovered", armor: "Recovered", missions: nextMissions, xp: normalized.xp + (g.xpGain || 0), kills: normalized.kills + (g.kill || 0), rank: rankFor({ ...normalized, xp: normalized.xp + (g.xpGain || 0), missions: nextMissions }), kiaSquad: soldierFinalSquad, squadHistory: Array.from(new Set([...(normalized.squadHistory || []), ...launchedSquads.map((sq) => sq.name)])) };
       }
       const normalized = normalizeSoldier(s);
       const oldLevel = normalized.level;
@@ -5853,7 +5855,8 @@ function equipFromInventory(soldierId, itemName) {
       }
       const nextMissions = normalized.missions + 1;
       return { ...normalized, xp: newXp, level: newLevel, rank: rankFor({ ...normalized, xp: newXp, level: newLevel, missions: nextMissions }), kills: normalized.kills + g.kill, wounded: normalized.wounded + (g.wounded ? 1 : 0), missions: nextMissions, status: nextStatus, stats: newStats, statDamage: nextStatus === "Ready" ? {} : nextStatDamage, sickbayDays: nextStatus === "Ready" ? 0 : (normalized.sickbayDays || 0), currentHealth: nextStatus === "Ready" ? newStats.health : nextCurrentHealth, squadHistory: Array.from(new Set([...(normalized.squadHistory || []), ...launchedSquads.map((sq) => sq.name)])) };
-    }));
+    });
+    setSoldiers(missionUpdatedSoldiers);
     const wipedSquadIds = launchedSquads
       .filter((sq) => {
         const participatingIds = sq.soldierIds.filter((id) => missionParticipantIds.includes(id));
@@ -5919,7 +5922,7 @@ function equipFromInventory(soldierId, itemName) {
     const missionSummary = `${result.success ? "SUCCESS" : "FAILURE"}: ${mission.kind} in ${mission.region}. Reward: ${result.success ? mission.reward : Math.floor(mission.reward * 0.2)}k. ${result.casualties.length ? "Casualties: " + result.casualties.join(", ") : "No major casualties."}${recoveredEquipmentText}${alienSpoilsText}${captiveRecoveryText}${strategicOutcomeText}${sickbayOverflow.length ? ` Sickbay overflow: ${sickbayOverflow.join(", ")} could not be admitted because all ${sickbayCapacity} beds are full.` : ""}`;
     completeAction(missionSummary);
     addMissionReport({ mission, result, squadName: launchedSquadName, summary: missionSummary, fallenNames });
-    advanceOneDay(`${mission.kind} response consumed 1 day`);
+    advanceOneDay(`${mission.kind} response consumed 1 day`, missionUpdatedSoldiers);
   }
 
   function requestMissionLaunch(mode) {
