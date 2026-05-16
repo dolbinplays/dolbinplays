@@ -561,6 +561,12 @@ const FEARSOME_ANIMALS = Object.values(FEARSOME_ANIMALS_BY_LETTER).flat();
 
 const SAVE_SLOT_COUNT = 10;
 const SAVE_STORAGE_KEY = "project-aegis-dark-horizon-save-slots-v1";
+const AUTO_SAVE_SLOT_COUNT = 2;
+const AUTO_SAVE_STORAGE_KEY = "project-aegis-dark-horizon-autosave-slots-v1";
+const AUTO_SAVE_SETTINGS_KEY = "project-aegis-dark-horizon-autosave-settings-v1";
+const AUTO_SAVE_INTERVAL_OPTIONS = [5, 10, 15, 20, 30];
+const CURRENT_SAVE_FORMAT_VERSION = 2;
+const CURRENT_GAME_BUILD = "5_12a_SAVE_VERSION_AUTOSAVE_v1";
 const NEW_BASE_COST = 900;
 const ALIEN_CRAFT_SIZES = {
   Small: { threat: 1, speed: 14, reward: 260, detect: 1 },
@@ -1442,6 +1448,70 @@ function writeSaveSlots(slots) {
   }
 }
 
+function blankAutoSaveSlots() {
+  return Array.from({ length: AUTO_SAVE_SLOT_COUNT }, (_, i) => ({ slot: i + 1, empty: true, autosave: true }));
+}
+
+function readAutoSaveSlots() {
+  if (typeof localStorage === "undefined") return blankAutoSaveSlots();
+  try {
+    const raw = localStorage.getItem(AUTO_SAVE_STORAGE_KEY);
+    if (!raw) return blankAutoSaveSlots();
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return blankAutoSaveSlots();
+    return blankAutoSaveSlots().map((slot, i) => parsed[i] ? { ...slot, ...parsed[i], slot: i + 1, autosave: true } : slot);
+  } catch {
+    return blankAutoSaveSlots();
+  }
+}
+
+function writeAutoSaveSlots(slots) {
+  if (typeof localStorage === "undefined") return false;
+  try {
+    localStorage.setItem(AUTO_SAVE_STORAGE_KEY, JSON.stringify(slots));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readAutoSaveIntervalMinutes() {
+  if (typeof localStorage === "undefined") return 10;
+  try {
+    const raw = localStorage.getItem(AUTO_SAVE_SETTINGS_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    const minutes = Number(parsed?.intervalMinutes);
+    return AUTO_SAVE_INTERVAL_OPTIONS.includes(minutes) ? minutes : 10;
+  } catch {
+    return 10;
+  }
+}
+
+function writeAutoSaveIntervalMinutes(minutes) {
+  if (typeof localStorage === "undefined") return false;
+  try {
+    localStorage.setItem(AUTO_SAVE_SETTINGS_KEY, JSON.stringify({ intervalMinutes: minutes }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function migrateCampaignData(data) {
+  if (!data || typeof data !== "object") return data;
+  const version = Number(data.saveFormatVersion || 1);
+  const migrated = { ...data };
+  if (!Array.isArray(migrated.knownAliens)) migrated.knownAliens = [];
+  if (!Array.isArray(migrated.workshopOrders)) migrated.workshopOrders = [];
+  if (!migrated.gearInventory) migrated.gearInventory = normalizeGearInventory();
+  if (!migrated.weaponUpgrades) migrated.weaponUpgrades = normalizeWeaponUpgrades();
+  if (!migrated.panic) migrated.panic = { "North America": 18, "South America": 22, Europe: 16, "North Africa": 25, "East Asia": 20, Oceania: 19 };
+  if (!migrated.regionalFundingBonusPct) migrated.regionalFundingBonusPct = { "North America": 0, "South America": 0, Europe: 0, "North Africa": 0, "East Asia": 0, Oceania: 0 };
+  migrated.saveFormatVersion = Math.max(version, CURRENT_SAVE_FORMAT_VERSION);
+  migrated.migratedFromSaveFormatVersion = version < CURRENT_SAVE_FORMAT_VERSION ? version : migrated.migratedFromSaveFormatVersion || null;
+  return migrated;
+}
+
 function makeNewGameData(setup = {}) {
   const startingBase = initialBase({
     name: setup.baseName || "Fort Aegis",
@@ -1449,6 +1519,8 @@ function makeNewGameData(setup = {}) {
     location: setup.location || null,
   });
   return {
+    saveFormatVersion: CURRENT_SAVE_FORMAT_VERSION,
+    gameBuild: CURRENT_GAME_BUILD,
     tab: "geoscape",
     funds: 2200,
     bases: [startingBase],
@@ -3985,6 +4057,10 @@ function AlienResponseCommand() {
   const [screen, setScreen] = useState("start");
   const [gameOver, setGameOver] = useState(initialGame.gameOver || false);
   const [saveSlots, setSaveSlots] = useState(() => readSaveSlots());
+  const [autoSaveSlots, setAutoSaveSlots] = useState(() => readAutoSaveSlots());
+  const [autoSaveIntervalMinutes, setAutoSaveIntervalMinutes] = useState(() => readAutoSaveIntervalMinutes());
+  const [lastAutoSaveAt, setLastAutoSaveAt] = useState(null);
+  const autoSaveSnapshotRef = useRef(null);
   const [saveName, setSaveName] = useState("Project Aegis Campaign");
   const [currentGameName, setCurrentGameName] = useState("Unsaved Campaign");
   const [tab, setTab] = useState(initialGame.tab);
@@ -4786,6 +4862,8 @@ function AlienResponseCommand() {
 
   function getCurrentGameData() {
     return {
+      saveFormatVersion: CURRENT_SAVE_FORMAT_VERSION,
+      gameBuild: CURRENT_GAME_BUILD,
       tab,
       funds,
       month,
@@ -4833,6 +4911,7 @@ function AlienResponseCommand() {
 
   function applyGameData(data, loadedName = "Loaded Campaign", options = {}) {
     if (!data) return blockedAction("Load game", "selected save slot is empty or invalid");
+    data = migrateCampaignData(data);
     if (!options.preserveMusic) stopStartMusic();
     setTab(data.tab || "geoscape");
     setFunds(typeof data.funds === "number" ? data.funds : 2200);
@@ -4945,6 +5024,8 @@ function AlienResponseCommand() {
       savedAt: new Date().toLocaleString(),
       month,
       funds,
+      saveFormatVersion: CURRENT_SAVE_FORMAT_VERSION,
+      gameBuild: CURRENT_GAME_BUILD,
       data: getCurrentGameData(),
     };
     if (!writeSaveSlots(nextSlots)) return blockedAction("Save game", "browser storage is unavailable");
@@ -4956,7 +5037,7 @@ function AlienResponseCommand() {
   function loadFromSlot(slotNumber) {
     const slot = saveSlots[slotNumber - 1];
     if (!slot || slot.empty || !slot.data) return blockedAction("Load game", `Slot ${slotNumber} is empty`);
-    applyGameData(slot.data, slot.name || `Slot ${slotNumber}`);
+    applyGameData(migrateCampaignData(slot.data), slot.name || `Slot ${slotNumber}`);
     completeAction(`Loaded "${slot.name}" from Slot ${slotNumber}.`);
   }
 
@@ -4998,8 +5079,8 @@ function AlienResponseCommand() {
   function makeCampaignExportPayload(name = currentGameName, data = getCurrentGameData()) {
     return {
       kind: "project-aegis-campaign-save",
-      saveFormatVersion: 1,
-      gameBuild: "5_12a_RESTORED_PRE_ALIEN_PATCH_ROLL_FIX_v6_export_import_audio_assets",
+      saveFormatVersion: CURRENT_SAVE_FORMAT_VERSION,
+      gameBuild: CURRENT_GAME_BUILD,
       exportedAt: new Date().toISOString(),
       name: name || "Project Aegis Campaign",
       month,
@@ -5030,8 +5111,8 @@ function AlienResponseCommand() {
   function exportAllSaveSlots() {
     const payload = {
       kind: "project-aegis-save-slot-backup",
-      saveFormatVersion: 1,
-      gameBuild: "5_12a_RESTORED_PRE_ALIEN_PATCH_ROLL_FIX_v6_export_import_audio_assets",
+      saveFormatVersion: CURRENT_SAVE_FORMAT_VERSION,
+      gameBuild: CURRENT_GAME_BUILD,
       exportedAt: new Date().toISOString(),
       slots: saveSlots,
     };
@@ -5044,13 +5125,13 @@ function AlienResponseCommand() {
 
     if (payload.kind === "project-aegis-save-slot-backup" && Array.isArray(payload.slots)) {
       const nextSlots = blankSaveSlots().map((slot, i) => payload.slots[i] ? { ...slot, ...payload.slots[i], slot: i + 1 } : slot);
-      if (!validSaveSlots(nextSlots)) return blockedAction("Import saves", "the backup file does not contain valid save slots");
+      if (!isValidSaveSlotList(nextSlots)) return blockedAction("Import saves", "the backup file does not contain valid save slots");
       if (!writeSaveSlots(nextSlots)) return blockedAction("Import saves", "browser storage is unavailable");
       setSaveSlots(nextSlots);
       return completeAction("Imported all save slots from the selected backup file.");
     }
 
-    const importedData = payload.data || payload;
+    const importedData = migrateCampaignData(payload.data || payload);
     if (!importedData || typeof importedData !== "object" || !Array.isArray(importedData.soldiers) || !Array.isArray(importedData.bases)) {
       return blockedAction("Import save", "the selected file does not look like a Project Aegis campaign save");
     }
@@ -5081,6 +5162,83 @@ function AlienResponseCommand() {
       reader.readAsText(file);
     };
     input.click();
+  }
+
+  function buildSaveRecord(name, slotNumber = null, autosave = false) {
+    return {
+      slot: slotNumber,
+      empty: false,
+      autosave,
+      name,
+      savedAt: new Date().toLocaleString(),
+      savedAtISO: new Date().toISOString(),
+      month,
+      dayOfMonth,
+      funds,
+      saveFormatVersion: CURRENT_SAVE_FORMAT_VERSION,
+      gameBuild: CURRENT_GAME_BUILD,
+      data: getCurrentGameData(),
+    };
+  }
+
+  function writeRotatingAutoSave() {
+    if (screen !== "game") return false;
+    const snapshot = autoSaveSnapshotRef.current;
+    if (!snapshot?.data) return false;
+    const nextSlots = blankAutoSaveSlots().map((slot, i) => autoSaveSlots[i] ? { ...slot, ...autoSaveSlots[i], slot: i + 1, autosave: true } : slot);
+    let slotIndex = nextSlots.findIndex((slot) => slot.empty);
+    if (slotIndex < 0) {
+      slotIndex = nextSlots.reduce((oldestIndex, slot, i) => {
+        const oldestTime = Date.parse(nextSlots[oldestIndex]?.savedAtISO || nextSlots[oldestIndex]?.savedAt || 0) || 0;
+        const slotTime = Date.parse(slot?.savedAtISO || slot?.savedAt || 0) || 0;
+        return slotTime < oldestTime ? i : oldestIndex;
+      }, 0);
+    }
+    const slotNumber = slotIndex + 1;
+    nextSlots[slotIndex] = {
+      slot: slotNumber,
+      empty: false,
+      autosave: true,
+      name: `Autosave ${slotNumber} - ${snapshot.name || "Campaign"}`,
+      savedAt: new Date().toLocaleString(),
+      savedAtISO: new Date().toISOString(),
+      month: snapshot.month,
+      dayOfMonth: snapshot.dayOfMonth,
+      funds: snapshot.funds,
+      saveFormatVersion: CURRENT_SAVE_FORMAT_VERSION,
+      gameBuild: CURRENT_GAME_BUILD,
+      data: snapshot.data,
+    };
+    if (!writeAutoSaveSlots(nextSlots)) return false;
+    setAutoSaveSlots(nextSlots);
+    setLastAutoSaveAt(nextSlots[slotIndex].savedAt);
+    return true;
+  }
+
+  function loadFromAutoSave(slotNumber) {
+    const slot = autoSaveSlots[slotNumber - 1];
+    if (!slot || slot.empty || !slot.data) return blockedAction("Load autosave", `Autosave ${slotNumber} is empty`);
+    applyGameData(migrateCampaignData(slot.data), slot.name || `Autosave ${slotNumber}`);
+    completeAction(`Loaded "${slot.name}" from Autosave ${slotNumber}.`);
+  }
+
+  function exportAutoSaveSlot(slotNumber) {
+    const slot = autoSaveSlots[slotNumber - 1];
+    if (!slot || slot.empty || !slot.data) return blockedAction("Export autosave", `Autosave ${slotNumber} is empty`);
+    const name = slot.name || `Project Aegis Autosave ${slotNumber}`;
+    const payload = makeCampaignExportPayload(name, slot.data);
+    payload.autosaveSlot = slotNumber;
+    payload.savedAt = slot.savedAt || null;
+    const ok = downloadJsonFile(`${safeSaveFileName(name)}.project-aegis-save.json`, payload);
+    return ok ? completeAction(`Exported Autosave ${slotNumber} as a computer save file.`) : blockedAction("Export autosave", "the browser could not create a download file");
+  }
+
+  function changeAutoSaveInterval(minutes) {
+    const next = Number(minutes);
+    if (!AUTO_SAVE_INTERVAL_OPTIONS.includes(next)) return blockedAction("Autosave interval", "selected interval is not available");
+    setAutoSaveIntervalMinutes(next);
+    writeAutoSaveIntervalMinutes(next);
+    completeAction(`Autosave interval set to every ${next} minutes.`);
   }
 
   function ensureSquadCapacity(nextHangars = hangars) {
@@ -6050,6 +6208,25 @@ function equipFromInventory(soldierId, itemName) {
     completeAction(`Month ${endingMonth} Council Summary: ${completedThisMonth.length} missions completed (${successCount} success, ${failureCount} failure). ${fallenNames.length ? `KIA: ${fallenNames.join(", ")}.` : "No soldiers lost."} Funding: ${income}k, Upkeep: ${upkeep}k, Net: ${income - upkeep}k. ${expired} unresolved incidents increased panic. ${remainingMonthDays} remaining day${remainingMonthDays === 1 ? "" : "s"} of healing were applied before Council Review.${endMonthArrivalText} Next month incident forecast: ${nextMonthIncidents.total} active incidents (${nextMonthIncidents.baseIncidents} base + ${nextMonthIncidents.radarBonus} from ${radars} Longwave Radar${radars === 1 ? "" : "s"}). ${fundingAdjustments.length ? `Mission performance funding changes: ${fundingAdjustments.map((a) => `${a.region} ${a.pct > 0 ? "+" : ""}${a.pct}%`).join(", ")}. ` : ""}${researchNote}${completedBuilds.length ? ` Workshop completed: ${completedBuilds.join(", ")}.` : ""}${recovered.length ? ` Recovered from Sickbay: ${recovered.join(", ")}.` : ""}${admittedFromBarracks.length ? ` Sickbay beds refilled from Barracks: ${admittedFromBarracks.join(", ")}.` : ""}`);
   }
 
+  useEffect(() => {
+    autoSaveSnapshotRef.current = {
+      name: saveName.trim() || currentGameName || `Campaign Month ${month}`,
+      month,
+      dayOfMonth,
+      funds,
+      data: getCurrentGameData(),
+    };
+  });
+
+  useEffect(() => {
+    if (screen !== "game") return undefined;
+    const intervalMs = autoSaveIntervalMinutes * 60 * 1000;
+    const timer = setInterval(() => {
+      writeRotatingAutoSave();
+    }, intervalMs);
+    return () => clearInterval(timer);
+  }, [screen, autoSaveIntervalMinutes, autoSaveSlots]);
+
   const tabs = [
     ["geoscape", ICONS.globe, "Geoscape"],
     ["base", ICONS.home, "Base"],
@@ -6142,6 +6319,26 @@ function equipFromInventory(soldierId, itemName) {
           <button onClick={() => loadFromSlot(slot.slot)} className="rounded-2xl border bg-white px-3 py-2 text-sm font-bold shadow-sm">Load</button>
           {!slot.empty && <button onClick={() => exportSlot(slot.slot)} className="rounded-2xl border bg-white px-3 py-2 text-sm font-semibold shadow-sm">Export File</button>}
           {!slot.empty && <button onClick={() => deleteSaveSlot(slot.slot)} className="rounded-2xl border bg-white px-3 py-2 text-sm font-semibold shadow-sm">Clear Slot</button>}
+        </div>
+      </div>)}
+    </div>
+  );
+
+
+  const AutoSaveSlotCards = () => (
+    <div className="grid gap-3 md:grid-cols-2">
+      {autoSaveSlots.map((slot) => <div key={slot.slot} className={`rounded-3xl border p-4 shadow-sm ${slot.empty ? "bg-white/70" : "bg-blue-50"}`}>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="text-xs uppercase tracking-wide opacity-60">Autosave Slot {slot.slot}</div>
+            <div className="font-black">{slot.empty ? "Empty" : slot.name}</div>
+          </div>
+          <Icon className="h-5 w-5">{slot.empty ? ICONS.slotEmpty : ICONS.slotFull}</Icon>
+        </div>
+        {!slot.empty && <div className="mt-2 text-xs opacity-75">Month {slot.month ?? "?"}, Day {slot.dayOfMonth ?? "?"}  -  Funds ${slot.funds ?? "?"}k<br />Autosaved: {slot.savedAt || "Unknown"}</div>}
+        <div className="mt-3 grid gap-2">
+          <button onClick={() => loadFromAutoSave(slot.slot)} className="rounded-2xl border bg-white px-3 py-2 text-sm font-bold shadow-sm">Load Autosave</button>
+          {!slot.empty && <button onClick={() => exportAutoSaveSlot(slot.slot)} className="rounded-2xl border bg-white px-3 py-2 text-sm font-semibold shadow-sm">Export File</button>}
         </div>
       </div>)}
     </div>
@@ -6907,6 +7104,16 @@ function equipFromInventory(soldierId, itemName) {
           </div>
           <div className="rounded-[2rem] border border-white/20 bg-white/10 p-5 shadow-xl backdrop-blur">
             <h2 className="mb-3 text-xl font-black">Load a Saved Game</h2>
+            <div className="mb-5 rounded-3xl border bg-blue-50 p-4 shadow-sm">
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="font-black">Autosaves</h3>
+                  <p className="text-xs opacity-70">Two rotating autosave slots. Players can load or export them, but cannot manually save into them.</p>
+                </div>
+                <div className="text-xs font-semibold opacity-70">Every {autoSaveIntervalMinutes} minutes{lastAutoSaveAt ? ` - Last: ${lastAutoSaveAt}` : ""}</div>
+              </div>
+              <AutoSaveSlotCards />
+            </div>
             <SaveSlotCards />
           </div>
         </div>
@@ -6994,6 +7201,21 @@ function equipFromInventory(soldierId, itemName) {
                 <button onClick={importSaveFromComputer} className="rounded-2xl border bg-white px-4 py-2 text-sm font-bold shadow-sm">Import Save File</button>
               </div>
             </div>
+          </div>
+          <div className="rounded-3xl border bg-blue-50 p-5 shadow-sm">
+            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h2 className="text-xl font-black">Autosaves</h2>
+                <p className="text-sm opacity-70">Two rotating autosave slots are reserved for automated saves only. Manual saves still use the 10 slots below.</p>
+              </div>
+              <label className="flex items-center gap-2 rounded-2xl border bg-white px-3 py-2 text-sm font-bold shadow-sm">
+                Autosave every
+                <select value={autoSaveIntervalMinutes} onChange={(event) => changeAutoSaveInterval(event.target.value)} className="rounded-xl border bg-white px-2 py-1">
+                  {AUTO_SAVE_INTERVAL_OPTIONS.map((minutes) => <option key={minutes} value={minutes}>{minutes} minutes</option>)}
+                </select>
+              </label>
+            </div>
+            <AutoSaveSlotCards />
           </div>
           <SaveSlotCards allowSave />
         </div>
